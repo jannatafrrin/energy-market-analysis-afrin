@@ -1,0 +1,3 @@
+-- Stage 4: Business questions
+-- Carbon intensity by region/time, fuel-type emissions drivers,
+-- low-carbon dispatch window identification

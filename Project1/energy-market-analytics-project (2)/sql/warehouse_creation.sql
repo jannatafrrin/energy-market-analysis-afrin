@@ -1,0 +1,3 @@
+-- Stage 2: Analytics layer (star schema)
+-- fact_hourly_generation, fact_daily_emissions
+-- dim_generator, dim_region, dim_fuel_type

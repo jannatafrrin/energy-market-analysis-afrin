@@ -1,0 +1,10 @@
+
+import pandas as pd
+
+du_summary = pd.read_csv(
+    "du-detail-summary.csv",
+    skiprows=1,
+    header=0
+)
+print(du_summary.head())
+print(du_summary.columns)

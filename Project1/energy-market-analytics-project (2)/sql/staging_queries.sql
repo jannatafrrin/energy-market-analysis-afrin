@@ -1,0 +1,4 @@
+-- Stage 2: Staging layer
+-- Cleaned/transformed versions of raw AEMO tables
+-- e.g. stg_generation_dispatch, stg_prices, stg_units
+-- (populated as we build the project together)
