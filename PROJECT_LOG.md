@@ -73,3 +73,25 @@ correctly filterable to NSW1, with timezone-aware timestamps (+10:00 baked in).
 **Principle reinforced:** when a library's behaviour doesn't match expectations, 
 inspect the actual object/response directly (type, raw structure, pydantic's 
 `model_fields`) rather than guessing at attribute names.
+
+## Stage 1 completion — EMISSIONS metric, region filter, 1-week pull, resample
+
+**Decision: Aggregate power via mean, emissions via sum when resampling 5-min → 30-min**
+
+- Checked `response.data[1].results[0].columns` on the emissions series and found `unit='t'` (tonnes) — a per-interval quantity, not an intensity (e.g. tCO2e/MWh).
+- `power` is reported in MW — an instantaneous rate, like a speedometer reading — so averaging six 5-min readings gives a correct 30-min average.
+- `emissions` at unit 't' represents tonnes emitted *within* that 5-min window — a quantity, not a rate — so it must be **summed**, not averaged, across the six readings. Averaging would have understated total emissions by ~6x.
+- Verified via `pd.pivot_table` (to split metric into separate columns) + `groupby("region").resample("30min").agg({"power": "mean", "emissions": "sum"})`, since a single aggregation rule can't be applied differently per column without pivoting first.
+
+**Decision: Filter to NSW1/SA1 immediately after determining region, before appending to rows**
+
+- The API's `get_network_data` doesn't support filtering by region in the request — it always returns all 5 NEM regions.
+- Filtering in the parsing loop (via `if region not in (...): continue`) avoids building rows for the 3 unused regions, rather than fetching everything into a DataFrame and filtering afterward.
+
+**Decision: Save NSW1 and SA1 as two separate raw CSVs, not one combined file**
+
+- Keeps the raw layer consistent with "minimal changes from source" — treats each region as its own extract, matching how staging/warehouse design will likely load them.
+
+**Result:** `data/raw/nsw1_sample_1week.csv`, `data/raw/sa1_sample_1week.csv` — 336 rows each (7 days × 48 half-hour intervals), power (MW, mean) and emissions (t, sum) for the week of 2026-08-10 to 2026-08-16.
+
+**Stage 1: complete.**
