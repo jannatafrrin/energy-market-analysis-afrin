@@ -4,4 +4,3 @@ __pycache__/
 .env
 *.csv
 !data/sample_data/*.csv
-!data/raw/*.csv
