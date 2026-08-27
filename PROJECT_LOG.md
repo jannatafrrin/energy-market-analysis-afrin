@@ -95,3 +95,33 @@ inspect the actual object/response directly (type, raw structure, pydantic's
 **Result:** `data/raw/nsw1_sample_1week.csv`, `data/raw/sa1_sample_1week.csv` — 336 rows each (7 days × 48 half-hour intervals), power (MW, mean) and emissions (t, sum) for the week of 2026-08-10 to 2026-08-16.
 
 **Stage 1: complete.**
+
+## Stage 2: Staging Layer
+
+**Decision: SQLite over CSV/pandas for staging.**
+Chosen because this is explicitly a SQL portfolio project — staging in SQLite
+lets SQL querying start immediately, rather than deferring it to a separate
+"Stage 3" of the project.
+
+**Decision: Combined stg_carbon_intensity table, not split stg_power/stg_emissions.**
+Power and emissions were pulled from the same API call, at the same grain
+(region + 30-min interval) — there's no genuine separate "raw power" feed to
+stage independently. Carbon intensity (tCO2/MWh) is computed once here rather
+than deferred to an analytics layer, because it's a fixed physical ratio
+(emissions / (power * 0.5)) used identically by every downstream query in this
+project, not a business judgment call that varies by use case. Computing it
+centrally in staging reduces the risk of inconsistent recalculation across
+future SQL queries.
+
+**Table: stg_carbon_intensity**
+| column | type | notes |
+|---|---|---|
+| interval | TEXT | ISO timestamp, +10:00 offset preserved |
+| region | TEXT | NSW1 / SA1 |
+| power_mw | REAL | 30-min average power |
+| emissions_tco2 | REAL | 30-min summed emissions |
+| carbon_intensity | REAL | emissions_tco2 / (power_mw * 0.5) |
+
+**Verification:** Loaded 672 rows (336 per region). GROUP BY query confirmed
+NSW1 avg carbon intensity ~0.55 tCO2/MWh vs SA1 ~0.12 tCO2/MWh — consistent
+with NSW1's coal-heavy generation mix vs. SA1's high renewable penetration.
