@@ -4,3 +4,4 @@ __pycache__/
 .env
 *.csv
 !data/sample_data/*.csv
+*.db
