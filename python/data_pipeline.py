@@ -9,6 +9,9 @@ import pandas as pd
 from openelectricity import OEClient
 from openelectricity.types import DataMetric
 
+from dotenv import load_dotenv
+load_dotenv()
+
 end_date = datetime(2026, 8, 17)
 start_date = end_date - timedelta(days=7)
 
