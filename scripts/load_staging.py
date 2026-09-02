@@ -24,7 +24,10 @@ def load_staging():
     # Carbon intensity = tonnes CO2 emitted per MWh of energy generated.
     # power_mw is an average rate over the 30-min interval, so energy (MWh)
     # = power_mw * 0.5 hours. Dividing emissions by that gives tCO2/MWh.
+    # Guard against divide-by-zero for intervals where a fuel type produced
+    # no power at all (e.g. distillate, which was 0 for the full week).
     df["carbon_intensity"] = df["emissions_tco2"] / (df["power_mw"] * 0.5)
+    df["carbon_intensity"] = df["carbon_intensity"].fillna(0)
 
     conn = sqlite3.connect(DB_PATH)
     df.to_sql("stg_carbon_intensity", conn, if_exists="replace", index=False)
