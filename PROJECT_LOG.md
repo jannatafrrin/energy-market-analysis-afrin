@@ -7,7 +7,7 @@ and for explaining "why" in interviews.
 ## Decisions Log
 | Date | Decision | Rationale |
 |------|----------|-----------|
-| 2026-07-27 | Use OpenNEM, not raw AEMO NEMWEB | Cleaner grain, analyst-friendly output, industry-standard starting point |
+| 2026-07-27 | Use OpenNEM, not raw AEMO NEMWEB | Cleaner grain, industry-standard starting point |
 | 2026-07-27 | Scope to NSW1 + SA1, 30-min interval, 12 months | Coal-heavy vs renewables-heavy contrast makes comparisons meaningful; 30-min granularity is sufficient for the analytical questions, avoids unnecessary data volume |
 
 ## Open Questions
@@ -22,20 +22,16 @@ and for explaining "why" in interviews.
 **Context:** OpenNEM has rebranded to OpenElectricity. The old open/keyless API is 
 deprecated. The site's chart export offers fixed range presets (1D/3D/7D/30D/1Y/ALL) 
 and a separate 5m/30m interval toggle. It was unclear whether 30m resolution is 
-preserved reliably at 1Y range via the UI export, and this wasn't worth testing 
-further.
+preserved reliably at 1Y range, and this wasn't worth testing further.
 
 **Rationale:**
-- Project requires 30-min granularity across 12 months, 2 regions (NSW1, SA1) — 
-  ~17.5k rows per region. Manual export doesn't scale or reproduce cleanly at that volume.
+- Project requires 30-min granularity across 12 months, 2 regions (NSW1, SA1). Manual export doesn't scale or reproduce cleanly at that volume.
 - A scripted API pull (via data_pipeline.py) is reproducible, auditable, and re-runnable 
-  — which manual browser downloads are not. This is closer to how a real data pipeline 
-  would be built.
-- Requires registering a free API key at platform.openelectricity.org.au (new 
-  requirement post-rebrand; the old anonymous access is gone).
+  — which manual browser downloads are not.
+- Requires registering a free API key at platform.openelectricity.org.au.
 
 **Trade-off accepted:** Slightly more setup time (API key registration, auth handling) 
-in exchange for a defensible, professional pipeline design.
+in exchange for a durable pipeline design.
 
 ## [2026-08-21] API integration debugging: 5-min pull, region parsing
 
@@ -76,10 +72,10 @@ inspect the actual object/response directly (type, raw structure, pydantic's
 
 ## Stage 1 completion — EMISSIONS metric, region filter, 1-week pull, resample
 
-**Decision: Aggregate power via mean, emissions via sum when resampling 5-min → 30-min**
+**Decision: Aggregate power via mean, emissions via sum when resampling 5-min  to 30-min**
 
 - Checked `response.data[1].results[0].columns` on the emissions series and found `unit='t'` (tonnes) — a per-interval quantity, not an intensity (e.g. tCO2e/MWh).
-- `power` is reported in MW — an instantaneous rate, like a speedometer reading — so averaging six 5-min readings gives a correct 30-min average.
+- `power` is reported in MW — an instantaneous rate, so averaging six 5-min readings gives a correct 30-min average.
 - `emissions` at unit 't' represents tonnes emitted *within* that 5-min window — a quantity, not a rate — so it must be **summed**, not averaged, across the six readings. Averaging would have understated total emissions by ~6x.
 - Verified via `pd.pivot_table` (to split metric into separate columns) + `groupby("region").resample("30min").agg({"power": "mean", "emissions": "sum"})`, since a single aggregation rule can't be applied differently per column without pivoting first.
 
