@@ -121,3 +121,67 @@ future SQL queries.
 **Verification:** Loaded 672 rows (336 per region). GROUP BY query confirmed
 NSW1 avg carbon intensity ~0.55 tCO2/MWh vs SA1 ~0.12 tCO2/MWh — consistent
 with NSW1's coal-heavy generation mix vs. SA1's high renewable penetration.
+
+## Stage 2 continued: Adding fuel-type breakdown
+
+**Motivation:** Two of Problem 1's core questions ("which fuel types drive
+carbon intensity spikes") require fuel-type-level data, but the original
+pipeline only grouped by region — power and emissions were already blended
+across every generator before reaching us.
+
+**Discovery process:**
+- Checked `get_network_data`'s full signature via `inspect.signature()`
+  (not `help()`, which got stuck in a pager mid-session) — found
+  `secondary_grouping: Literal['fueltech', 'fueltech_group', 'status', 'renewable']`.
+- Chose `fueltech_group` over `fueltech` — the group-level classification is
+  the right grain for a "which fuel types" comparison; raw `fueltech` would
+  likely be per-unit/per-technology detail, too granular for this analysis.
+- `FueltechGroupType` turned out to be a Python `Enum`, not a `Literal` type —
+  `typing.get_args()` returned nothing (`()`) because that only works on
+  `typing` constructs. Iterating `for member in FueltechGroupType` was the
+  correct way to list an enum's values. Useful distinction to remember:
+  `DataMetric.POWER` (used since Stage 1) is also an enum member, not a
+  string constant.
+- Ran a small, cheap inspection call (1 day, POWER only, first 5 series names
+  printed) before touching the real pipeline, to see the actual API response
+  format rather than guessing it. This revealed series names like
+  `power_NSW1|battery_charging` — a pipe-delimited format combining metric,
+  region, and fueltech, not the simple underscore format from Stage 1.
+
+**Parsing fix:** the original `series.name.split("_", 1)` logic broke two
+ways once fueltech was added — it doesn't know about the `|` separator, and
+`battery_charging` would incorrectly split on its own underscore. Fixed with
+a two-step split: `|` first (metric+region vs. fueltech), then `_` for
+metric vs. region.
+
+**Decision: collapse battery_charging/battery_discharging into "battery".**
+The raw API splits battery into charging and discharging as separate series.
+Kept as one category in staging for simpler fuel-type comparisons; the full
+charge/discharge detail is still available any time by removing one `if`
+block in the pipeline (nothing is lost — this is a staging-time choice, not
+an API limitation). Flagged as a good candidate for a future standalone
+mini-analysis: whether SA1's battery discharges during its highest-carbon-
+intensity hours, effectively displacing dirtier generation.
+
+**Environment side-quest:** while testing this, discovered the pipeline's
+API key was only ever set via a manual `export` in one now-closed terminal
+session — never actually moved to a permanent `.env` file, despite that
+being the original plan from Stage 1 setup. Fixed by creating `.env` +
+`python-dotenv`, confirmed `.env` was already correctly git-ignored. The old
+key was also pasted in a chat log during this debugging, so it was revoked
+and regenerated as a precaution, then re-verified working.
+
+**Result:** row count grew from 672 to 4,704 (336 intervals × 2 regions ×
+9 fuel types: battery, bioenergy, coal, distillate, gas, hydro, pumps,
+solar, wind). Sanity-checked NSW1's average power by fuel type — coal
+dominates at ~5,442 MW average, more than 3x solar (~1,738 MW), consistent
+with NSW's known coal-heavy generation mix. Distillate averaged 0 MW for
+the week, which is expected (diesel peaking plants only fire during extreme
+demand events), not a data error.
+
+**Staging table update:** `stg_carbon_intensity` rebuilt with a `fueltech`
+column added. Added a divide-by-zero guard (`.fillna(0)`) for fuel types
+with 0 MW average power in a given interval (e.g. distillate), which would
+otherwise produce `NaN`/`inf` carbon intensity values. Verified via a
+diagnostic query (`scripts/check_carbon_intensity.py`) — no null or
+implausible (>100 tCO2/MWh) values found across all 4,704 rows.
