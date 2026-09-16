@@ -185,3 +185,40 @@ with 0 MW average power in a given interval (e.g. distillate), which would
 otherwise produce `NaN`/`inf` carbon intensity values. Verified via a
 diagnostic query (`scripts/check_carbon_intensity.py`) — no null or
 implausible (>100 tCO2/MWh) values found across all 4,704 rows.
+
+
+## Stage 3: SQL Analysis — Window Functions
+
+**Workflow change:** built `scripts/run_query.py`, a reusable runner that
+takes a `.sql` file path and prints results as a table via
+`pd.read_sql_query()`. Chosen over ad hoc terminal one-liners specifically
+because multi-line inline SQL in the terminal caused repeated paste/escaping
+issues this session. Queries now live as permanent, documented
+`.sql` files in `sql/`, each with a comment header stating the business
+question it answers — doubling as portfolio artifacts, not just working code.
+
+**Query 1: Top carbon-intensity fuel type per region (`top_fueltype_per_region.sql`)**
+Introduced `RANK() OVER (PARTITION BY region ORDER BY AVG(carbon_intensity) DESC)`
+wrapped in a subquery, filtering `WHERE rank = 1` in the outer query. Window
+functions attach a calculated value to every row without collapsing them
+(unlike `GROUP BY`, which does collapse rows) — necessary because `WHERE`
+can't reference a window function's result at the same query level it was
+calculated, since window functions execute after `WHERE`/`GROUP BY` in SQL's
+logical processing order. Result: NSW1's top emitter is coal (0.89 tCO2/MWh),
+SA1's is gas (0.48) — SA1 has no coal in its generation mix at all.
+
+**Query 2: Least-dirty non-zero fuel type per region (`least_dirty_fueltype_per_region.sql`)**
+
+- Fix: `HAVING avg_carbon_intensity > 0`, placed after `GROUP BY` inside the
+  subquery. `HAVING` filters groups by an aggregate's result, after
+  aggregation — the correct tool for this, versus `WHERE`'s row-level
+  filtering before aggregation. Confirmed `HAVING` runs before `RANK()`
+  calculates, so the zero-emission groups are correctly excluded from the
+  ranking itself, not just hidden after the fact.
+
+Result: NSW1's least-dirty non-zero source is bioenergy (0.033 tCO2/MWh) —
+a genuinely distinct answer from its top emitter (coal). SA1's least-dirty
+and top emitter are the *same* fuel type (gas, 0.484) — SA1's non-zero
+generation mix is effectively binary: renewables (zero-emission) or gas,
+nothing in between. Worth remembering as a real characteristic of SA1's
+generation mix, not a query error.
