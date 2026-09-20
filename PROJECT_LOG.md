@@ -222,3 +222,42 @@ and top emitter are the *same* fuel type (gas, 0.484) — SA1's non-zero
 generation mix is effectively binary: renewables (zero-emission) or gas,
 nothing in between. Worth remembering as a real characteristic of SA1's
 generation mix, not a query error.
+
+## Stage 3 continued: Regional carbon intensity by hour of day
+
+**The bug:** first attempt at "carbon intensity by hour" applied `AVG(carbon_intensity)`
+directly across all rows in a hour bucket — but `stg_carbon_intensity` has one row
+per fuel type per interval, so each hour bucket contains 9 rows (one per fuel type),
+5-6 of which (wind, solar, hydro, battery) sit at exactly 0.0. A plain `AVG()`
+treats every fuel type as equally weighted regardless of how much power it actually
+contributed, so the result was dragged toward the many zero-emission rows
+regardless of true generation volume. Symptom: every hour landed within
+0.168-0.170 tCO2/MWh — suspiciously flat, and far below the known fuel-type
+averages (coal alone averages 0.89). A pre-computed ratio column like
+`carbon_intensity` is only valid at the grain it was calculated at (per fuel
+type, per interval) — aggregating it further with a simple average across a
+different grain (fuel type collapsed) produces a number that runs without
+error but is not physically meaningful.
+
+**The fix:** recompute the true region-level carbon intensity from first
+principles, in two layers:
+1. Inner subquery: `SUM(power_mw)` and `SUM(emissions_tco2)` across all fuel
+   types, grouped by `region` and hour (extracted via `strftime('%H', interval)`)
+   — collapsing 9 fuel-type rows into one true regional total per hour.
+2. Outer query: `total_emissions / (total_power * 0.5)`, applied to the
+   already-summed totals, with explicit parentheses (operator precedence
+   otherwise evaluates left-to-right, giving a different and wrong number).
+   This division has to happen in the outer query, not the inner one —
+   `SUM()` must fully resolve as an aggregate before it can be divided;
+   you can't reference an aggregate's result in the same `SELECT` list
+   where it's still being calculated.
+
+**Finding:** NSW1's carbon intensity is lowest overnight (~0.32-0.36,
+hours 00-04) and rises sharply through the morning, peaking around hour 13
+(~0.675) before falling back overnight. This is the opposite of a naive
+expectation that midday solar would lower carbon intensity — instead, it
+appears demand-driven dispatch (more coal/gas brought online to meet
+afternoon peak demand) outweighs solar's downward effect on the intensity
+ratio. Flagged as a lead to investigate directly against demand data next,
+rather than assumed — ties into Problem 1's question of whether high demand
+correlates with higher emissions.
