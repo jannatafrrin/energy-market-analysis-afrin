@@ -1,4 +1,4 @@
-# API Inspection Commands — Reference Cheatsheet
+commands# API Inspection Commands — Reference Cheatsheet
 
 Reusable commands for exploring an unfamiliar API client library before
 writing pipeline code against it. Copy the relevant block, adjust the
