@@ -258,6 +258,55 @@ hours 00-04) and rises sharply through the morning, peaking around hour 13
 expectation that midday solar would lower carbon intensity — instead, it
 appears demand-driven dispatch (more coal/gas brought online to meet
 afternoon peak demand) outweighs solar's downward effect on the intensity
-ratio. Flagged as a lead to investigate directly against demand data next,
-rather than assumed — ties into Problem 1's question of whether high demand
+ratio. Flagged as a lead to investigate directly against demand data next, ties into Problem 1's question of whether high demand
 correlates with higher emissions.
+
+## Stage 3 continued: Pulling demand data (`get_market` endpoint)
+
+**Motivation:** Problem 1's third question — does high demand correlate with
+higher emissions — needs actual demand figures, which generation data alone
+can't answer. Investigated after noticing carbon intensity peaks midday
+(Stage 3, hourly query), contrary to a naive "solar lowers midday intensity"
+expectation.
+
+**New endpoint, new conventions:**
+- Demand lives on `get_market()` (taking `MarketMetric`), a structurally
+  different method from `get_network_data()` (`DataMetric`) used for all
+  prior pulls. Confirmed via `inspect.signature()` before writing any code.
+- `get_market()` has no `secondary_grouping` parameter at all — makes sense,
+  since demand has no fueltech dimension to break down by.
+- `network_region` only accepts a single string, not a list — to get both
+  NSW1 and SA1 in one call, used `primary_grouping="network_region"`
+  (returns all 5 NEM regions) and filtered in the parsing loop, same pattern
+  as Stage 1's original `get_network_data()` approach before
+  `secondary_grouping` was added.
+- Series naming is simpler than the fueltech case: `demand_NSW1`, no pipe
+  character — confirmed via a small 1-day inspection pull before writing the
+  real pipeline. Needed only one `.split("_", 1)`, not the two-step
+  pipe-then-underscore split the fueltech pipeline required.
+
+**Real API bug caught via docs, not the response object:** `series.columns`
+returned `unit_code=None` for demand (unlike emissions, which populated
+`unit='t')` — no way to confirm MW vs MWh from the response itself. Checked
+docs.openelectricity.org.au directly instead, which confirmed `demand` is a
+rate (MW), correctly comparable to `power_mw` — but also flagged a known bug:
+the API's own 30-min aggregation for `demand` currently sums instead of
+averaging. Worked around it by pulling at native 5-min resolution (same as
+Stage 1) and resampling to 30-min with `mean` in pandas, rather than trusting
+the API's own longer-interval aggregation for this metric.
+
+**Design decision: separate pipeline and output, not merged into
+`stg_carbon_intensity`.** Demand is (region, interval) grain — no fueltech —
+while `stg_carbon_intensity` is (region, fueltech, interval). Merging demand
+in would mean duplicating the same demand value across all 9 fueltech rows
+per region/interval, misleadingly implying demand varies by fuel type. Built
+`demand_pipeline.py` as a standalone script, saving to
+`data/raw/{region}_demand_1week.csv` — deliberately different filenames from
+the existing `{region}_sample_1week.csv` to avoid overwriting Stage 1/2 data.
+A `stg_demand` table (or direct join at query time) is the planned next step,
+kept separate from `stg_carbon_intensity` rather than merged.
+
+**Result:** 672 rows (336 intervals x 2 regions), saved to
+`nsw1_demand_1week.csv` / `sa1_demand_1week.csv`. Sanity-checked against
+known generation magnitudes — NSW1 midnight demand (~8,164 MW) sits in the
+same order of magnitude as total generation from the earlier hourly query.
