@@ -310,3 +310,31 @@ kept separate from `stg_carbon_intensity` rather than merged.
 `nsw1_demand_1week.csv` / `sa1_demand_1week.csv`. Sanity-checked against
 known generation magnitudes — NSW1 midnight demand (~8,164 MW) sits in the
 same order of magnitude as total generation from the earlier hourly query.
+
+## Stage 3 continued: Demand correlation
+
+**New table:** built `stg_demand` (`scripts/load_demand_staging.py`) from
+the raw demand CSVs — simpler than `load_staging.py` since there's no
+derived ratio to calculate, just a column rename (`demand` → `demand_mw`)
+for unit clarity, consistent with `power_mw`.
+
+**JOIN:** combined a region/interval-grain carbon intensity
+subquery (sum emissions and power across all 9 fuel types, then divide)
+with `stg_demand`, matching on both `region` AND `interval` — a single-
+column join would have paired NSW1's demand with SA1's intensity at
+matching timestamps, which are unrelated. Required qualifying `region`/
+`interval` with table aliases (`ci.region` vs `d.region`) since both
+tables share those column names.
+
+**Finding:** demand and carbon intensity visibly move together in NSW1's
+evening peak (e.g. 14 Aug, 18:00-19:30: demand ~9,900-10,000 MW, intensity
+consistently >0.64) and both drop together overnight. Midday is more
+nuanced — NSW1's lowest demand and lowest intensity of the day often
+coincide (~10am-2pm), consistent with solar reducing net grid draw and
+emissions simultaneously. SA1 shows an even sharper pattern: intensity
+drops near-zero (0.005-0.02) during most midday hours regardless of exact
+demand level, then spikes in the evening as solar disappears and gas
+picks up the load (e.g. 13 Aug, 17:00-18:30: intensity jumps 0.32→0.41
+as demand rises). Confirms Problem 1's demand-correlation hypothesis
+directionally; a formal correlation coefficient is a natural next step
+rather than eyeballing the full 672-row result.
