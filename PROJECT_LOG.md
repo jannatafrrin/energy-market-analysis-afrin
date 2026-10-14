@@ -338,3 +338,34 @@ picks up the load (e.g. 13 Aug, 17:00-18:30: intensity jumps 0.32→0.41
 as demand rises). Confirms Problem 1's demand-correlation hypothesis
 directionally; a formal correlation coefficient is a natural next step
 rather than eyeballing the full 672-row result.
+
+## Stage 3 continued: Pearson correlation coefficient (demand vs. carbon intensity)
+
+**Manual calculation:** SQLite has no built-in `CORR()` function
+(unlike Postgres). Computed Pearson's r from its underlying formula using
+only `SUM()`, `COUNT()`:
+
+r = (n·Σxy − Σx·Σy) / √[(n·Σx² − (Σx)²) · (n·Σy² − (Σy)²)]
+
+**Three-layer structure**, each layer depending on the previous one's
+fully-resolved output:
+1. `joined` — the existing `demand_correlation.sql` logic (carbon intensity
+   summed/divided per region+interval, joined to `stg_demand`), unchanged
+2. `level1` — six aggregates computed per region from `joined`: `n`,
+   `sum_x`, `sum_y`, `sum_xy`, `sum_x2`, `sum_y2`
+3. Outer query — assembles the final `r` using only arithmetic on
+   `level1`'s already-aggregated columns
+
+**Debugging journey:** several attempts collapsed the three layers into a
+single flat `SELECT` with no subquery nesting. 
+Fixed by rebuilding bottom-up: confirm the innermost layer alone, then wrap
+the next layer around it as a subquery in `FROM ( ... ) AS alias`, one
+layer at a time, rather than trying to write all three layers at once.
+
+**Finding:** NSW1 r = 0.43 (moderate positive correlation between demand
+and carbon intensity), SA1 r = 0.28 (weaker). Consistent with earlier
+observations — SA1's intensity is driven heavily by solar availability
+(near-zero at midday regardless of demand level), which dilutes a pure
+demand-vs-intensity relationship compared to NSW1's more directly
+demand-driven, coal/gas-dependent dispatch. Closes Problem 1's fifth and
+final core question with a calculated, not estimated, result.
