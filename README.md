@@ -41,6 +41,11 @@ Raw data (data_pipeline.py)
 → OpenElectricity API, secondary_grouping=fueltech_group
 → 5-min → 30-min resample, battery charge/discharge collapsed
 → data/raw/{region}_sample_1week.csv
+
+Raw demand (demand_pipeline.py)
+    → OpenElectricity API, get_market(), MarketMetric.DEMAND
+    → 5-min → 30-min resample (mean) — avoids a known API aggregation bug
+    → data/raw/{region}_demand_1week.csv
 ↓
 Staging layer (load_staging.py)
 → SQLite (data/energy_analytics.db)
@@ -67,6 +72,12 @@ bug) — is logged in `PROJECT_LOG.md`.
   fully-resolved result
 - Date/time extraction (`strftime`) to find hour-of-day patterns from
   interval timestamps
+- `JOIN` with a multi-column `ON` condition (region AND interval), to
+  correctly match two separate staging tables without cross-pairing
+  unrelated regions at the same timestamp
+- Manually implemented the Pearson correlation coefficient formula in SQL
+  (SQLite has no built-in `CORR()`), using three layers of nested
+  subqueries to sequence aggregation → derived calculation → final ratio
 
 ## Key Insights
 
@@ -83,6 +94,11 @@ bug) — is logged in `PROJECT_LOG.md`.
    across fuel types produced a flat, physically implausible ~0.17 result
    for every hour. Fixed by recalculating from summed totals
    (sum emissions ÷ sum power) rather than averaging pre-computed ratios.
+5. **Demand correlates with carbon intensity, moderately — more so in
+   NSW1 (r = 0.43) than SA1 (r = 0.28).** NSW1's coal/gas-dependent grid
+   tracks demand fairly directly; SA1's weaker correlation reflects solar
+   dominating its intensity regardless of exact demand level (near-zero
+   at midday almost independent of demand).
 
 ## Business Recommendations
 
@@ -93,6 +109,11 @@ bug) — is logged in `PROJECT_LOG.md`.
 - The midday intensity peak in NSW1 warrants further investigation against demand data to confirm as demand-driven. It suggests targeted
   demand-response programs during afternoon peak hours could meaningfully
   reduce emissions.
+- The moderate demand-carbon intensity correlation in NSW1 (r = 0.43)
+  supports targeted demand-response programs during high-demand periods
+  as a viable emissions-reduction lever; SA1's weaker correlation (r = 0.28)
+  suggests renewable availability, not demand timing, is the dominant
+  lever there.
 
 ## Repository Structure
 energy-market-analysis-afrin/
@@ -105,16 +126,19 @@ energy-market-analysis-afrin/
 ├── python/
 │ └── data_pipeline.py # API pull, resample, save to raw/
 ├── scripts/
-│ ├── setup_database.py
-│ ├── load_staging.py
-│ ├── run_query.py # Reusable .sql file runner
-│ └── check_carbon_intensity.py
+│   ├── setup_database.py
+│   ├── load_staging.py
+│   ├── load_demand_staging.py
+│   ├── run_query.py
+│   └── check_carbon_intensity.py
 └── sql/
-├── fueltype_carbon_intensity_ranking.sql
-├── top_fueltype_per_region.sql
-├── least_dirty_fueltype_per_region.sql
-├── carbon_intensity_by_hour_nsw1.sql
-└── lowest_carbon_windows_per_region.sql
+    ├── fueltype_carbon_intensity_ranking.sql
+    ├── top_fueltype_per_region.sql
+    ├── least_dirty_fueltype_per_region.sql
+    ├── carbon_intensity_by_hour_nsw1.sql
+    ├── lowest_carbon_windows_per_region.sql
+    ├── demand_correlation.sql
+    └── demand_carbon_correlation.sql
 
 ## Next Steps
 
