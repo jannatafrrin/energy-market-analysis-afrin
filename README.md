@@ -37,28 +37,26 @@ hours.
   comparisons meaningful for the analytical questions this project answers
 
 ## Pipeline Architecture
+
+```
 Raw data (data_pipeline.py)
-→ OpenElectricity API, secondary_grouping=fueltech_group
-→ 5-min → 30-min resample, battery charge/discharge collapsed
-→ data/raw/{region}_sample_1week.csv
+    → OpenElectricity API, secondary_grouping=fueltech_group
+    → 5-min → 30-min resample, battery charge/discharge collapsed
+    → data/raw/{region}_sample_1week.csv
 
 Raw demand (demand_pipeline.py)
     → OpenElectricity API, get_market(), MarketMetric.DEMAND
     → 5-min → 30-min resample (mean) — avoids a known API aggregation bug
     → data/raw/{region}_demand_1week.csv
-↓
-Staging layer (load_staging.py)
-→ SQLite (data/energy_analytics.db)
-→ stg_carbon_intensity: adds carbon_intensity = emissions / (power * 0.5)
-→ divide-by-zero guarded, verified via check_carbon_intensity.py
-↓
+        ↓
+Staging layer (load_staging.py, load_demand_staging.py)
+    → SQLite (data/energy_analytics.db)
+    → stg_carbon_intensity: adds carbon_intensity = emissions / (power * 0.5)
+    → stg_demand: demand_mw, kept as a separate table (no fueltech dimension)
+        ↓
 Analysis (run_query.py + sql/*.sql)
-→ Documented, reusable .sql files run against the staging table
-
-
-Full rationale for every architectural decision — including debugging
-detours (API auth issues, response format discovery, a weighted-average
-bug) — is logged in `PROJECT_LOG.md`.
+    → Documented, reusable .sql files run against the staging tables
+```
 
 ## SQL Techniques Used
 
@@ -116,6 +114,8 @@ bug) — is logged in `PROJECT_LOG.md`.
   lever there.
 
 ## Repository Structure
+
+```
 energy-market-analysis-afrin/
 ├── PROJECT_LOG.md # Full decision log + debugging journey
 ├── README.md
@@ -139,10 +139,10 @@ energy-market-analysis-afrin/
     ├── lowest_carbon_windows_per_region.sql
     ├── demand_correlation.sql
     └── demand_carbon_correlation.sql
+    ```
 
 ## Next Steps
 
-- Pull DEMAND metric to directly test the demand-correlation hypothesis
-  behind the midday carbon intensity peak
-- Extend to full 12-month range for seasonal pattern analysis
+- Extend to a longer date range (currently testing 60 days, scaling toward
+  a full 12-month pull) for seasonal pattern analysis
 - Build a Tableau/Power BI dashboard on top of the analytical queries above
